@@ -1,0 +1,218 @@
+library(alfred)
+library(xts)
+apikey<-"6e795b60de713eb572de76b5ff125bfd"
+projectionlookback<-40
+
+comp<-get_fred_series(
+  "A460RC1Q027SBEA",
+  "nonfinancial employee comp",
+  api_key = apikey
+)
+cpi<-get_fred_series(
+  "CPIAUCSL",
+  "cpi",
+  api_key = apikey
+)
+xts1.ts<-xts(x=cpi[,2], order.by =  cpi[,1])
+cpiq<-apply.quarterly(xts1.ts, colMeans)
+cpiq2<-ts(matrix(cpiq), start = c(1947,1), frequency = 4 )
+rcomp<-comp[,2]/cpiq
+rcomp1<-matrix(rcomp)
+rcomp2<-ts(data=rcomp1, start = c(1947,1), frequency = 4)
+
+historicalQprojectionF<-function(x, ytitle){
+  if (length(x)<13){
+    stop("too short")
+  }
+  xlength1<-(projectionlookback+1):length(x)
+  xout1<-matrix(nrow = (length(x)+12), ncol = length(xlength1))
+  for (xlen in xlength1) {
+    lmsamp<-(xlen-projectionlookback):(xlen-1)
+    xcoef<-summary(lm(x[lmsamp]~lmsamp))$coefficients
+    xdiff<-x[(xlen-1)]-(xcoef[1,1]+( ((xlen-1))*xcoef[2,1]))
+    xdiff<-xdiff/2
+    xout1[xlen:(xlen+11),(xlen-projectionlookback)]<-xcoef[1,1]+( (xlen:(xlen+11))*xcoef[2,1])+xdiff
+
+  }
+plot(c(x, rep(NA, 12)), type = "l", col = "blue", ylab = ytitle, ylim = c(0, max(xout1, na.rm = TRUE)))
+for(xvar in (1:length(xout1[1,])))
+  {
+  lines(xout1[,xvar])
+}
+legend("topleft", c("Historical Data", "Projections"),pch = "--", col = c("blue", "black"))
+xout1
+}
+rwages1<-historicalQprojectionF(rcomp1, "Real Wages")
+rwages2<-ts(data=rwages1, start = c(1947,1), frequency = 4)
+
+hoursnf<-get_fred_series(
+  "PRS88003033",
+  "nonfinancial hours worked",
+  api_key = apikey
+)
+hoursnf2<-matrix(hoursnf[,2])
+projectedhours<-historicalQprojectionF(hoursnf2, "Nonfinancial Hours Worked")
+nonfingva<-get_fred_series(
+  "A455RC1Q027SBEA",
+  "nonfinancial gross value add",
+  api_key = apikey
+)
+nonfingva2<-nonfingva[,2]/cpiq[(1:length(nonfingva[,1]))]
+nonfingva2<-matrix(nonfingva2)
+nonfingva3<-ts(data=nonfingva2, start = c(1947,1), frequency = 4)
+productivityratio<-nonfingva2/hoursnf2
+historicalQprojectionF(nonfingva2, "Nonfinancial Real Gross Value Added")
+projectionratio<-historicalQprojectionF(productivityratio, "Nonfinancial Labor Productivity")
+
+invdata1<-get_fred_series(
+  "BOGZ1FA105019005Q",
+  observation_start = "1951-10-01",
+  "nonfinancial fixed investment",
+  api_key = apikey
+)
+
+
+projectedvalue<-projectedhours*projectionratio
+plot(c(nonfingva2, rep(NA, 12)), type = "l", col = "blue", ylab = "nonfinancial gross value add", ylim = c(0, max(projectedvalue, na.rm = TRUE)))
+hgcoef<-summary(lm(nonfingva2~hoursnf2))$coefficients
+projectedG<-hgcoef[1,1]+( projectedhours*hgcoef[2,1])
+for(xvar in (1:length(projectedvalue[1,])))
+{
+  lines(projectedG[,xvar])
+}
+legend("topleft", c("Historical Data", "Projections"),pch = "--", col = c("blue", "black"))
+
+
+
+historicalQprojectionF2<-function(gdp, x, xout2, ytitle){
+  if (length(x)<projectionlookback){
+    stop("too short")
+  }
+  xlength1<-(projectionlookback+1):length(x)
+  xout1<-matrix(nrow = (length(x)+12), ncol = length(xlength1))
+  for (xlen in xlength1) {
+    lmsamp<-(xlen-projectionlookback):(xlen-1)
+    xcoef<-summary(lm(gdp[lmsamp]~x[lmsamp]))$coefficients
+    xdiff<-gdp[(xlen-1)]-(xcoef[1,1]+( (x[xlen-1])*xcoef[2,1]))
+    xdiff<-xdiff
+    xout1[xlen:(xlen+11),(xlen-projectionlookback)]<-xcoef[1,1]+( (xout2[xlen:(xlen+11), (xlen-projectionlookback)])*xcoef[2,1])+xdiff
+    
+  }
+  plot(c(gdp, rep(NA, 12)), type = "l", col = "blue", ylab = ytitle, ylim = c(0, max(xout1, na.rm = TRUE)))
+  for(xvar in (1:length(xout1[1,])))
+  {
+    lines(xout1[,xvar])
+  }
+  legend("topleft", c("Historical Data", "Projections"),pch = "--", col = c("blue", "black"))
+  xout1
+}
+
+
+valueproject2<-historicalQprojectionF2(nonfingva2, hoursnf2,projectedhours, "nonfinancial gross value add")
+valueproject3<-ts(data=valueproject2, start = c(1947,1), frequency = 4)
+
+error1<-rowSums(abs(valueproject2[1:(length(valueproject2[,1])-12),]-length(nonfingva2)), na.rm = TRUE)
+
+valueproj1<-(rowMeans(projectedvalue, na.rm = TRUE))
+valueproj2<-(rowMeans(valueproject2, na.rm = TRUE))
+plot(c(nonfingva2, rep(NA, 12)), type = "l", col = "blue", ylab = "nonfinancial gross value add", ylim = c(0, max(projectedvalue, na.rm = TRUE)))
+
+
+
+invdata<-invdata1[,2]/1000
+
+tsCC<-ts(data= invdata, start=c(1951,4), frequency = 4)
+infadjtcc1<-ts.intersect(cpiq2, tsCC)
+invdata<-infadjtcc1[,2]/infadjtcc1[,1]
+lmdatainv<-invdata[(length(invdata)-projectionlookback+1):length(invdata)]
+lmdatainv2<-(1:projectionlookback)
+lminv<-summary(lm(lmdatainv~lmdatainv2))$coefficients
+tsCC<-ts(data= invdata, start=c(1951,4), frequency = 4)
+invdata2<-c(invdata, (lminv[1,1]+( ((projectionlookback+1):(projectionlookback+13)) *lminv[2,1])))
+d<-20*4
+##length of depreciation schedule 
+
+capStock<-matrix(data = 0, nrow = d, ncol = 2)
+estCC<-matrix(nrow = length(invdata2), ncol = 2)
+csTemp<-matrix(nrow = d)
+for (d1 in (d:1))
+{
+  csTemp[d1]<-d1*(20/sum(d:1))
+}
+capStock[,1]<-sort(csTemp, decreasing = TRUE)
+capStock[,2]<-sort(csTemp, decreasing = TRUE)
+t<-1
+capStock 
+
+while (t<=length(invdata2))
+{
+  estCC[t,1]<- capStock[1,1]
+  estCC[t,2]<- capStock[1,2]
+  capStock[,1]<-c(capStock[2:d,1],0 )
+  capStock[,2]<-c(capStock[2:d,2],0 )
+  dp1<-1
+  dtemp<-0
+  for (dep in capStock[,1])
+  {
+    if (dp1<d)
+    {
+      capStock[dp1,1]<-dep+round(((2*(invdata2[t]-dtemp))/d), digits = 3);
+      dtemp<-dtemp+round(((2*(invdata2[t]-dtemp))/d), digits = 3);
+      dp1<-dp1+1;
+    }
+    else
+    {
+      capStock[dp1,1]<-dep+round((invdata2[t]-dtemp), digits = 3)
+    }
+  }
+  capStock[,2]<-round(capStock[,2]+(invdata2[t]/d), digits = 3);
+  t<-t+1
+}
+
+
+tsestCC1<-ts(data= estCC[,1], start=c(1951,4), frequency = 4)
+tsestCC2<-ts(data= estCC[,2], start=c(1951,4), frequency = 4)
+
+plot(tsCC)
+lines(tsestCC1)
+lines(tsestCC2)
+
+nfcapcondata1<-get_fred_series(
+  "B456RC1Q027SBEA",
+  observation_start = "1951-10-01",
+  "nonfinancial fixed capitl consumption",
+  api_key = apikey
+)
+
+nfcapcondata2<-ts(data=nfcapcondata1[,2], start=c(1951,4), frequency = 4)
+infadjtcc2<-ts.intersect(cpiq2, nfcapcondata2)
+nfcapcondata3<-infadjtcc2[,2]/infadjtcc2[,1]
+plot(nfcapcondata3, col = "blue")
+lines(tsestCC1, col = "red") ## ddb
+lines(tsestCC2, col = "green") ##normal depreciation
+tsestCC1[(length(tsestCC1)-12):length(tsestCC1)]<-tsestCC1[(length(tsestCC1)-12):length(tsestCC1)]+(nfcapcondata3[length(nfcapcondata3)]-tsestCC1[(length(tsestCC1)-13)])
+
+estCpcon<-c(nfcapcondata3, tsestCC1[(length(tsestCC1)-12):length(tsestCC1)])
+estCpcon<-ts(data=estCpcon, start=c(1951,4), frequency = 4)
+plot(estCpcon, type = "l")
+
+estlength<-1:min(ncol(rwages2), ncol(valueproject3))
+estintersect<-ts.intersect(estCpcon, rwages2[,estlength], valueproject3[,estlength])
+ropest<-matrix(data = NA, nrow = length(estintersect[,1]), ncol = estlength)
+for (var1 in estlength) {
+  v1<-paste("rwages2[, estlength].Series", var1)
+  v2<-paste("valueproject3[, estlength].Series", var1)
+  ropest<-cbind(ropest, ((estintersect[,v2]-(estintersect[,v1]+estintersect[,1]))/(estintersect[,v1]+estintersect[,1])))
+  colnames(ropest)<-1:ncol(ropest)
+  }
+
+estintersect[is.na(estintersect)]<-0
+estintersectcost<-(estintersect[,2:ncol(rwages2)]+estintersect[,2])
+estintersectrop<-(estintersect[,(ncol(estintersect)-ncol(valueproject3)+1):ncol(estintersect)]-estintersectcost)/(estintersect[,2:ncol(rwages2)]+estintersect[,2])
+realrop1<-ts.intersect(nfcapcondata3, rcomp2, nonfingva3)
+realrop2<-(realrop1[,3]-(realrop1[,2]+realrop1[,1]))/(realrop1[,2]+realrop1[,1])
+plot(realrop2)
+for(xvar in (2:length(ropest[1,])))
+{
+  lines(ropest[,xvar], col = "blue")
+}
